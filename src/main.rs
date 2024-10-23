@@ -1,18 +1,22 @@
 mod io;
 
+use dotenv::dotenv;
 use escpos::printer::Printer;
 use escpos::printer_options::PrinterOptions;
 use escpos::utils::*;
 use io::driver::AsyncSerialPortDriver;
 use std::error::Error;
 use std::fmt::Debug;
-use std::ops::Deref;
+use std::path::Path;
 use std::time::Duration;
 use teloxide::net::Download;
-use teloxide::types::{PhotoSize, Sticker};
+use teloxide::types::{Me, PhotoSize, Sticker};
 use teloxide::{prelude::*, utils::command::BotCommands};
+use tokio::fs::File;
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
+
+const AUTHORIZED_USER_ENV_VAR_KEY: &str = "AUTHORIZED_USER";
 
 /// These commands are supported:
 #[derive(BotCommands, Clone, Debug)]
@@ -114,7 +118,20 @@ impl PreparePrintCommand for PrintTypeSticker {
         printer: &mut Printer<AsyncSerialPortDriver>,
         bot: Bot,
     ) -> HandlerResult {
-        todo!();
+        // TODO
+        let base_path = Path::new("./tmp"); // TODO: Put base_path somewhere else
+
+        let file_id = &self.0.file.id;
+        let full_path = base_path.join(format!("tmp_{}", file_id));
+
+        let file = bot.get_file(file_id).await?;
+        let mut dst = File::create(&full_path).await?;
+
+        bot.download_file(&file.path, &mut dst).await?;
+
+        if let Some(path) = &full_path.to_str() {
+            printer.bit_image(path)?;
+        }
 
         Ok(())
     }
@@ -123,7 +140,7 @@ impl PreparePrintCommand for PrintTypeQr {
     async fn prepare(
         &self,
         printer: &mut Printer<AsyncSerialPortDriver>,
-        bot: Bot,
+        _bot: Bot,
     ) -> HandlerResult {
         printer.qrcode(&self.0)?;
 
@@ -134,7 +151,7 @@ impl PreparePrintCommand for PrintTypeBarcode {
     async fn prepare(
         &self,
         printer: &mut Printer<AsyncSerialPortDriver>,
-        bot: Bot,
+        _bot: Bot,
     ) -> HandlerResult {
         let b_type = &self.0;
         let content = &self.2;
@@ -178,7 +195,7 @@ struct PrintService {
 impl PrintService {
     async fn print(&self, bot: Bot, print_type: PrintType) -> HandlerResult {
         let mut cloned_printer = self.printer.clone();
-        let mut printer = cloned_printer.init()?;
+        let printer = cloned_printer.init()?;
 
         // TODO: Cleaner way to handle this?
         match print_type {
@@ -217,6 +234,15 @@ async fn main() -> HandlerResult {
     pretty_env_logger::init();
     log::info!("Starting buttons bot...");
 
+    let authorized_user = UserId(
+        dotenv::var(AUTHORIZED_USER_ENV_VAR_KEY)
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0u64),
+    );
+
+    log::info!("Authorized UserID: {}", authorized_user.to_string());
+
     let driver = AsyncSerialPortDriver::open("/dev/ttyUSB0", 9600, Some(Duration::from_secs(5)))?;
     let printer = Printer::new(driver, Protocol::default(), Some(PrinterOptions::default()));
 
@@ -225,6 +251,11 @@ async fn main() -> HandlerResult {
     let bot = Bot::from_env();
 
     let handler = dptree::entry()
+        .branch(
+            Update::filter_message()
+                .filter(|msg: Message, authorized_user: UserId| msg.chat.id != authorized_user)
+                .endpoint(handle_unauthorized_user),
+        )
         .branch(
             Update::filter_message()
                 .filter_command::<Command>()
@@ -238,7 +269,7 @@ async fn main() -> HandlerResult {
         .branch(Update::filter_message().endpoint(handle_other));
 
     Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![print_service])
+        .dependencies(dptree::deps![print_service, authorized_user])
         .enable_ctrlc_handler()
         .build()
         .dispatch()
@@ -322,6 +353,22 @@ async fn handle_unknown_command(
     Ok(())
 }
 
+async fn handle_unauthorized_user(
+    bot: Bot,
+    msg: Message,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let username = msg.chat.username().unwrap_or("???").to_string();
+    let user_id = msg.chat.id.to_string();
+
+    log::info!(
+        "[UNAUTHORIZED] User @{} ({}) attempted access to the printer.",
+        username,
+        user_id,
+    );
+    bot.send_message(msg.chat.id, "Unauthorized User!").await?;
+    Ok(())
+}
+
 async fn handle_other(
     bot: Bot,
     msg: Message,
@@ -332,7 +379,7 @@ async fn handle_other(
     let has_static_sticker = msg.sticker().is_some_and(|s| s.is_static());
 
     let print_type: Option<PrintType> = match (has_image, has_text, has_static_sticker) {
-        (true, has_text, _) => msg.photo().and_then(|i| i.first()).map(|i| {
+        (true, _, _) => msg.photo().and_then(|i| i.first()).map(|i| {
             PrintType::Image(PrintTypeImage(i.clone(), msg.text().map(|v| v.to_string())))
         }),
         (false, true, _) => msg
