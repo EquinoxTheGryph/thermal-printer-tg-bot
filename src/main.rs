@@ -1,26 +1,14 @@
 mod io;
 
-use escpos::driver::*;
 use escpos::printer::Printer;
 use escpos::printer_options::PrinterOptions;
 use escpos::utils::*;
-use io::driver::{self, AsyncSerialPortDriver};
-use std::borrow::BorrowMut;
-use std::cell::*;
+use io::driver::AsyncSerialPortDriver;
 use std::error::Error;
-use std::fmt::{Debug, Display};
-use std::sync::*;
+use std::fmt::Debug;
 use std::time::Duration;
 use teloxide::types::{PhotoSize, Sticker};
-use teloxide::{
-    prelude::*,
-    types::{
-        InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMessageContent,
-        InputMessageContentText, Me,
-    },
-    utils::command::BotCommands,
-};
-use tokio::sync::RwLock;
+use teloxide::{prelude::*, utils::command::BotCommands};
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
 
