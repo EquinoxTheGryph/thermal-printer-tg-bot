@@ -1,9 +1,10 @@
-use std::time::Duration;
+mod io;
 
 use escpos::printer::Printer;
 use escpos::printer_options::PrinterOptions;
 use escpos::utils::*;
 use escpos::{driver::*, errors::Result};
+use std::time::Duration;
 
 fn main() -> Result<()> {
     // env_logger::init();
