@@ -11,9 +11,8 @@ use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::sync::*;
 use std::time::Duration;
+use teloxide::types::{PhotoSize, Sticker};
 use teloxide::{
-    dispatching::dialogue::GetChatId,
-    payloads::SendMessageSetters,
     prelude::*,
     types::{
         InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMessageContent,
@@ -21,7 +20,7 @@ use teloxide::{
     },
     utils::command::BotCommands,
 };
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
 
@@ -37,28 +36,33 @@ enum Command {
     Qr(String),
 }
 
-// #[derive(Clone)]
-// struct PrintService {
-//     printer: Printer<AsyncSerialPortDriver>,
-// }
+enum PrintType {
+    /// Just Text
+    Text(String),
+    /// Image with optional text (to be printed below the image)
+    Image(PhotoSize, Option<String>),
+    /// Sticker
+    Sticker(Sticker),
+}
 
-// impl PrintService {
-//     fn print_text(&mut self, text: &str) -> HandlerResult {
-//         // log::info!("Printing stuff! {}", text);
+#[derive(Clone)]
+struct PrintService {
+    printer: Printer<AsyncSerialPortDriver>,
+}
 
-//         let mut init = self.printer.init()?;
+impl PrintService {
+    fn print_text(&self, text: &str) -> HandlerResult {
+        log::info!("Printing \"{}\"!", text);
+        self.printer.clone().init()?.writeln(text)?.print_cut()?;
+        Ok(())
+    }
+}
 
-//         init.writeln(text)?.print_cut();
-
-//         Ok(())
-//     }
-// }
-
-// impl From<Printer<AsyncSerialPortDriver>> for PrintService {
-//     fn from(value: Printer<AsyncSerialPortDriver>) -> Self {
-//         PrintService { printer: value }
-//     }
-// }
+impl From<Printer<AsyncSerialPortDriver>> for PrintService {
+    fn from(value: Printer<AsyncSerialPortDriver>) -> Self {
+        PrintService { printer: value }
+    }
+}
 
 #[tokio::main]
 async fn main() -> HandlerResult {
@@ -69,7 +73,7 @@ async fn main() -> HandlerResult {
     let driver = AsyncSerialPortDriver::open("/dev/ttyUSB0", 9600, Some(Duration::from_secs(5)))?;
     let printer = Printer::new(driver, Protocol::default(), Some(PrinterOptions::default()));
 
-    // let print_service = PrintService::from(printer);
+    let print_service = PrintService::from(printer);
 
     // Printer::new(driver, Protocol::default(), Some(PrinterOptions::default()))
     //     .debug_mode(Some(DebugMode::Dec))
@@ -152,76 +156,44 @@ async fn handle_other(
     msg: Message,
     print_service: PrintService,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    if let Some(text) = msg.text() {
-        bot.send_message(msg.chat.id, format!("You said a thing! \"{}\"", text))
-            .await?;
+    let has_image = msg.photo().is_some_and(|i| i.len() > 0);
+    let has_text = msg.text().is_some();
+    let has_static_sticker = msg.sticker().is_some_and(|s| s.is_static());
 
-        print_service.print_text(text);
+    let print_type: Option<PrintType> = match (has_image, has_text, has_static_sticker) {
+        (true, has_text, _) => msg
+            .photo()
+            .and_then(|i| i.first())
+            .map(|i| PrintType::Image(i.clone(), msg.text().map(|v| v.to_string()))),
+        (false, true, _) => msg.text().map(|v| PrintType::Text(v.to_string())),
+        (_, _, true) => msg.sticker().map(|s| PrintType::Sticker(s.clone())),
+        (_, _, _) => None,
+    };
+
+    // Print first image if there's one
+    if let Some(sticker) = msg.sticker() {
+        if sticker.is_animated() || sticker.is_video() {
+            bot.send_message(msg.chat.id, "Sticker needs to be static!")
+                .await?;
+            return Ok(()); // Early Return
+        }
+
+        bot.send_message(msg.chat.id, "Stickers are not supported yet.")
+            .await?;
+    }
+
+    // Print first image if there's one
+    if let Some(_img) = msg.photo() {
+        bot.send_message(msg.chat.id, "Images are not supported yet.")
+            .await?;
+    }
+
+    // Print text if the message has it
+    if let Some(text) = msg.text() {
+        bot.send_message(msg.chat.id, format!("Printing \"{}\"!", text))
+            .await?;
+        // print_service.print_text(text);
     }
 
     Ok(())
 }
-
-// async fn simple_commands_handler(
-//     bot: Bot,
-//     msg: Message,
-//     // me: teloxide::types::Me,
-//     // cmd: Command,
-//     // cfg: PrintService,
-// ) -> Result<(), teloxide::RequestError> {
-//     log::info!("HANDLE COMMAND");
-
-//     Ok(())
-// }
-
-// // async fn simple_messages_handler(
-// //     cfg: ConfigParameters,
-// //     bot: Bot,
-// //     me: teloxide::types::Me,
-// //     msg: Message,
-// //     cmd: SimpleCommand,
-// // ) -> HandlerResult {
-// //     log::info!("HANDLE MSGS");
-
-// //     Ok(())
-// // }
-
-// /// Parse the text wrote on Telegram and check if that text is a valid command
-// /// or not, then match the command. If the command is `/start` it writes a
-// /// markup with the `InlineKeyboardMarkup`.
-// async fn message_handler(
-//     bot: Bot,
-//     msg: Message,
-//     me: Me,
-// ) -> Result<(), Box<dyn Error + Send + Sync>> {
-//     if let Some(text) = msg.text() {
-//         let result = BotCommands::parse(text, me.username());
-
-//         if let Ok(command) = result {
-//             match command {
-//                 Command::Help | Command::Start => {
-//                     bot.send_message(msg.chat.id, Command::descriptions().to_string())
-//                         .await?;
-//                 }
-//                 Command::BarCode { code_type, content } => {
-//                     bot.send_message(msg.chat.id, "TODO!").await?;
-//                 }
-//                 Command::QrCode(content) => {
-//                     bot.send_message(msg.chat.id, "TODO!").await?;
-//                 }
-//             };
-//         } else {
-//             if !text.starts_with('/') {
-//                 bot.send_message(
-//                     msg.chat.id,
-//                     format!("You said: {}", msg.text().unwrap_or("NONE")),
-//                 )
-//                 .await?;
-//             } else {
-//                 bot.send_message(msg.chat.id, "Invalid Command!").await?;
-//             }
-//         }
-//     }
-
-//     Ok(())
-// }
