@@ -6,7 +6,9 @@ use escpos::utils::*;
 use io::driver::AsyncSerialPortDriver;
 use std::error::Error;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::time::Duration;
+use teloxide::net::Download;
 use teloxide::types::{PhotoSize, Sticker};
 use teloxide::{prelude::*, utils::command::BotCommands};
 
@@ -22,16 +24,151 @@ enum Command {
     Start,
     /// Print a QR Code
     Qr(String),
+
+    /// Print a EAN13 Barcode (Eg. 978020137962)
+    Ean13(String),
+    /// Print a EAN8 Barcode (Eg. 9031101)
+    Ean8(String),
+    /// Print a UPCA Barcode (Eg. 72527273070)
+    Upca(String),
+    /// Print a UPCE Barcode (Eg. 0123456)
+    /// Not supported on EM5820
+    Upce(String),
+    /// Print a CODE39 Barcode (Eg. ABC-1234)
+    /// Only supports short codes on EM5820
+    Code39(String),
+    /// Print a CODABAR Barcode (Eg. 0123456789)
+    /// Not supported on EM5820
+    Codabar(String),
+    /// Print a ITF Barcode (Eg. 102938475638)
+    Itf(String),
 }
+
+//#region Print Stuff
+struct PrintTypeText(String);
+struct PrintTypeImage(PhotoSize, Option<String>);
+struct PrintTypeSticker(Sticker);
+struct PrintTypeQr(String);
+struct PrintTypeBarcode(BarcodeType, Option<BarcodeOption>, String);
 
 enum PrintType {
     /// Just Text
-    Text(String),
+    Text(PrintTypeText),
     /// Image with optional text (to be printed below the image)
-    Image(PhotoSize, Option<String>),
+    Image(PrintTypeImage),
     /// Sticker
-    Sticker(Sticker),
+    Sticker(PrintTypeSticker),
+    /// QR Code
+    Qr(PrintTypeQr),
+    /// Barcode
+    Barcode(PrintTypeBarcode),
 }
+
+enum BarcodeType {
+    Ean13,
+    Ean8,
+    Upca,
+    Upce,
+    Code39,
+    Codabar,
+    Itf,
+}
+
+trait PreparePrintCommand {
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        bot: Bot,
+    ) -> HandlerResult;
+}
+
+impl PreparePrintCommand for PrintTypeText {
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        bot: Bot,
+    ) -> HandlerResult {
+        printer.writeln(&self.0)?;
+
+        Ok(())
+    }
+}
+impl PreparePrintCommand for PrintTypeImage {
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        bot: Bot,
+    ) -> HandlerResult {
+        todo!();
+
+        if let Some(text) = &self.1 {
+            printer.writeln(text)?;
+        }
+
+        Ok(())
+    }
+}
+impl PreparePrintCommand for PrintTypeSticker {
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        bot: Bot,
+    ) -> HandlerResult {
+        todo!();
+
+        Ok(())
+    }
+}
+impl PreparePrintCommand for PrintTypeQr {
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        bot: Bot,
+    ) -> HandlerResult {
+        printer.qrcode(&self.0)?;
+
+        Ok(())
+    }
+}
+impl PreparePrintCommand for PrintTypeBarcode {
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        bot: Bot,
+    ) -> HandlerResult {
+        let b_type = &self.0;
+        let content = &self.2;
+
+        // TODO: Use BarcodeOption (need to deref somehow?)
+
+        match b_type {
+            BarcodeType::Ean13 => {
+                printer.ean13(&content)?;
+            }
+            BarcodeType::Ean8 => {
+                printer.ean8(&content)?;
+            }
+            BarcodeType::Upca => {
+                printer.upca(&content)?;
+            }
+            BarcodeType::Upce => {
+                printer.upce(&content)?;
+            }
+            BarcodeType::Code39 => {
+                printer.code39(&content)?;
+            }
+            BarcodeType::Codabar => {
+                printer.codabar(&content)?;
+            }
+            BarcodeType::Itf => {
+                printer.itf(&content)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+//#endregion
 
 #[derive(Clone)]
 struct PrintService {
@@ -39,9 +176,31 @@ struct PrintService {
 }
 
 impl PrintService {
-    fn print_text(&self, text: &str) -> HandlerResult {
-        log::info!("Printing \"{}\"!", text);
-        self.printer.clone().init()?.writeln(text)?.print_cut()?;
+    async fn print(&self, bot: Bot, print_type: PrintType) -> HandlerResult {
+        let mut cloned_printer = self.printer.clone();
+        let mut printer = cloned_printer.init()?;
+
+        // TODO: Cleaner way to handle this?
+        match print_type {
+            PrintType::Text(print_type_text) => {
+                print_type_text.prepare(printer, bot).await?;
+            }
+            PrintType::Image(print_type_image) => {
+                print_type_image.prepare(printer, bot).await?;
+            }
+            PrintType::Sticker(print_type_sticker) => {
+                print_type_sticker.prepare(printer, bot).await?;
+            }
+            PrintType::Qr(print_type_qr) => {
+                print_type_qr.prepare(printer, bot).await?;
+            }
+            PrintType::Barcode(print_type_barcode) => {
+                print_type_barcode.prepare(printer, bot).await?;
+            }
+        };
+
+        printer.print()?;
+
         Ok(())
     }
 }
@@ -62,25 +221,6 @@ async fn main() -> HandlerResult {
     let printer = Printer::new(driver, Protocol::default(), Some(PrinterOptions::default()));
 
     let print_service = PrintService::from(printer);
-
-    // Printer::new(driver, Protocol::default(), Some(PrinterOptions::default()))
-    //     .debug_mode(Some(DebugMode::Dec))
-    //     .init()?
-    //     .smoothing(true)?
-    //     .bold(true)?
-    //     .underline(UnderlineMode::Single)?
-    //     .writeln("Bold underline")?
-    //     .justify(JustifyMode::CENTER)?
-    //     .reverse(true)?
-    //     .bold(false)?
-    //     .writeln("Hello world - Reverse")?
-    //     .feed()?
-    //     .justify(JustifyMode::RIGHT)?
-    //     .reverse(false)?
-    //     .underline(UnderlineMode::None)?
-    //     .size(2, 3)?
-    //     .writeln("Hello world - Normal")?
-    //     .print_cut()?;
 
     let bot = Bot::from_env();
 
@@ -113,21 +253,64 @@ async fn handle_command(
     cmd: Command,
     print_service: PrintService,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    match cmd {
+    let print_type: Option<PrintType> = match cmd {
         Command::Help | Command::Start => {
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
                 .await?;
+            None
         }
-        Command::Qr(_) => {
-            bot.send_message(msg.chat.id, "TODO!").await?;
-        }
+        Command::Qr(content) => Some(PrintType::Qr(PrintTypeQr(content))),
+
+        Command::Ean13(content) => Some(PrintType::Barcode(PrintTypeBarcode(
+            BarcodeType::Ean13,
+            None,
+            content,
+        ))),
+        Command::Ean8(content) => Some(PrintType::Barcode(PrintTypeBarcode(
+            BarcodeType::Ean8,
+            None,
+            content,
+        ))),
+        Command::Upca(content) => Some(PrintType::Barcode(PrintTypeBarcode(
+            BarcodeType::Upca,
+            None,
+            content,
+        ))),
+        Command::Upce(content) => Some(PrintType::Barcode(PrintTypeBarcode(
+            BarcodeType::Upce,
+            None,
+            content,
+        ))),
+        Command::Code39(content) => Some(PrintType::Barcode(PrintTypeBarcode(
+            BarcodeType::Code39,
+            None,
+            content,
+        ))),
+        Command::Codabar(content) => Some(PrintType::Barcode(PrintTypeBarcode(
+            BarcodeType::Codabar,
+            None,
+            content,
+        ))),
+        Command::Itf(content) => Some(PrintType::Barcode(PrintTypeBarcode(
+            BarcodeType::Itf,
+            None,
+            content,
+        ))),
     };
 
-    // log::info!("MESSAGE! {}", msg.text().unwrap_or("-"));
+    if let Some(print_type) = print_type {
+        let result = print_service.print(bot.clone(), print_type).await;
 
-    // print_service.print_text("Hello!");
-
-    Ok(())
+        if let Err(error) = result {
+            // Send the error message before bubbling the error
+            bot.send_message(msg.chat.id, error.to_string()).await?;
+            Err(error)
+        } else {
+            Ok(())
+        }
+    } else {
+        Ok(())
+    }
 }
 
 async fn handle_unknown_command(
@@ -149,39 +332,33 @@ async fn handle_other(
     let has_static_sticker = msg.sticker().is_some_and(|s| s.is_static());
 
     let print_type: Option<PrintType> = match (has_image, has_text, has_static_sticker) {
-        (true, has_text, _) => msg
-            .photo()
-            .and_then(|i| i.first())
-            .map(|i| PrintType::Image(i.clone(), msg.text().map(|v| v.to_string()))),
-        (false, true, _) => msg.text().map(|v| PrintType::Text(v.to_string())),
-        (_, _, true) => msg.sticker().map(|s| PrintType::Sticker(s.clone())),
+        (true, has_text, _) => msg.photo().and_then(|i| i.first()).map(|i| {
+            PrintType::Image(PrintTypeImage(i.clone(), msg.text().map(|v| v.to_string())))
+        }),
+        (false, true, _) => msg
+            .text()
+            .map(|v| PrintType::Text(PrintTypeText(v.to_string()))),
+        (_, _, true) => msg
+            .sticker()
+            .map(|s| PrintType::Sticker(PrintTypeSticker(s.clone()))),
         (_, _, _) => None,
     };
 
-    // Print first image if there's one
-    if let Some(sticker) = msg.sticker() {
-        if sticker.is_animated() || sticker.is_video() {
-            bot.send_message(msg.chat.id, "Sticker needs to be static!")
-                .await?;
-            return Ok(()); // Early Return
+    match print_type {
+        Some(print_type) => {
+            let result = print_service.print(bot.clone(), print_type).await;
+
+            if let Err(error) = result {
+                // Send the error message before bubbling the error
+                bot.send_message(msg.chat.id, error.to_string()).await?;
+                Err(error)
+            } else {
+                Ok(())
+            }
         }
-
-        bot.send_message(msg.chat.id, "Stickers are not supported yet.")
-            .await?;
+        None => {
+            bot.send_message(msg.chat.id, "Unsupported Format!").await?;
+            Ok(())
+        }
     }
-
-    // Print first image if there's one
-    if let Some(_img) = msg.photo() {
-        bot.send_message(msg.chat.id, "Images are not supported yet.")
-            .await?;
-    }
-
-    // Print text if the message has it
-    if let Some(text) = msg.text() {
-        bot.send_message(msg.chat.id, format!("Printing \"{}\"!", text))
-            .await?;
-        // print_service.print_text(text);
-    }
-
-    Ok(())
 }
