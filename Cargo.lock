@@ -2029,6 +2029,7 @@ version = "0.1.0"
 dependencies = [
  "dotenv",
  "escpos",
+ "image",
  "log",
  "openssl",
  "pretty_env_logger",
