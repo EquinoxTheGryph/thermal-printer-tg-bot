@@ -1,29 +1,31 @@
 use crate::io::driver::AsyncSerialPortDriver;
-use dotenv::dotenv;
 use escpos::printer::Printer;
-use escpos::printer_options::PrinterOptions;
-use escpos::utils::*;
-use image::{
-    imageops::{BiLevel, ColorMap},
-    DynamicImage, EncodableLayout, GenericImageView, GrayImage, ImageBuffer, Luma, LumaA,
-};
+use image::{imageops::BiLevel, GenericImageView, GrayImage, Luma};
+use std::error::Error;
 use std::path::Path;
-use std::time::Duration;
-use std::{error::Error, io::BufWriter};
-use std::{fmt::Debug, u8};
+use std::u8;
 use teloxide::net::Download;
-use teloxide::types::{Me, PhotoSize, Sticker};
-use teloxide::{prelude::*, utils::command::BotCommands};
+use teloxide::prelude::*;
 use tokio::fs::File;
 
-// TODO: Make these configurable
-const BASE_PATH: &str = "./tmp";
-const FILE_EXT: &str = ".webp";
+// // TODO: Make these configurable
+// const BASE_PATH: &str = "./tmp";
 
-const MAX_WIDTH: u32 = 480; // Must be divisible by 8
+// const MAX_WIDTH: u32 = 320; // Must be divisible by 8
 const MAX_HEIGHT: u32 = u32::MAX;
 
+// const BRIGHTEN_AMT: i32 = 0i32;
+// const CONTRAST_AMT: f32 = -10f32;
+
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
+
+#[derive(Clone)]
+pub struct ImageOptions {
+    pub contrast: f32,
+    pub brightness: i32,
+    pub base_path: String,
+    pub max_width: u32,
+}
 
 pub fn substr(s: &str, begin: usize, end: Option<usize>) -> Option<&str> {
     use std::iter::once;
@@ -41,13 +43,11 @@ pub async fn download_and_prepare_printer(
     file_id: String,
     printer: &mut Printer<AsyncSerialPortDriver>,
     bot: Bot,
+    options: ImageOptions,
 ) -> HandlerResult {
     // TODO: Make this configurable
     // Construct path
-    let base_path = Path::new(BASE_PATH);
-
-    // let file_id = &self.0.file.id;
-    let full_path = base_path.join(format!("{}{}", &file_id.to_string(), FILE_EXT));
+    let base_path = Path::new(&options.base_path).join(&file_id.to_string());
 
     let cloned_str = &file_id.clone();
     let _id = substr(
@@ -57,20 +57,24 @@ pub async fn download_and_prepare_printer(
     )
     .unwrap_or("?");
 
-    if let Some(path) = &full_path.to_str() {
+    if let Some(base_path_str) = &base_path.to_str() {
         // Get the external file data
-        log::info!("[{}] Preparing donwload", &_id);
+        log::info!("[{}] Getting Metadata", &_id);
         let file = bot.get_file(file_id).await?;
+
+        let ext = file.path.split('.').last().unwrap_or("").to_string();
+        let full_path = format!("{}.{}", base_path_str, &ext);
+
+        log::info!("[{}] Creating file (.{})", &_id, &ext);
         let mut dst = File::create(&full_path).await?;
 
         // Download the file
-        log::info!("[{}] Downloading file to \"{}\"", &_id, &path);
-        log::debug!("{}", &file.path);
+        log::info!("[{}] Downloading file to \"{}\"", &_id, &full_path);
         bot.download_file(&file.path, &mut dst).await?;
 
         // Load the downloaded file
         log::info!("[{}] Reading downloaded file", &_id);
-        let mut image = image::ImageReader::open(path)?
+        let mut image = image::ImageReader::open(full_path)?
             .with_guessed_format()?
             .decode()?;
 
@@ -78,11 +82,11 @@ pub async fn download_and_prepare_printer(
         log::info!("[{}] Resizing Image", &_id);
         let filter = image::imageops::FilterType::Lanczos3;
         // TODO: Make the max size configurable instead of hard coded
-        image = image.resize(MAX_WIDTH, MAX_HEIGHT, filter);
+        image = image.resize(options.max_width, MAX_HEIGHT, filter);
 
         // Convert to lumaA8
         log::info!("[{}] Converting Image", &_id);
-        let mut image2 = image.to_luma_alpha8();
+        let image2 = image.to_luma_alpha8();
         let mut image3 = GrayImage::from_fn(image.width(), image.height(), |x, y| {
             let [luma, alpha] = image2.get_pixel(x, y).0;
 
@@ -94,7 +98,9 @@ pub async fn download_and_prepare_printer(
         });
 
         // Process the image data (apply dither)
-        log::info!("[{}] Applying Dither", &_id);
+        log::info!("[{}] Applying Contrast, Brighten and Dither", &_id);
+        image::imageops::colorops::contrast_in_place(&mut image3, options.contrast);
+        image::imageops::colorops::brighten_in_place(&mut image3, options.brightness);
         image::imageops::dither(&mut image3, &BiLevel);
 
         log::info!("[{}] Buffering", &_id);

@@ -1,28 +1,24 @@
 mod io;
 mod util;
 
-use dotenv::dotenv;
 use escpos::printer::Printer;
 use escpos::printer_options::PrinterOptions;
 use escpos::utils::*;
-use image::{
-    imageops::{BiLevel, ColorMap},
-    DynamicImage, EncodableLayout, GenericImageView, GrayImage, ImageBuffer, Luma, LumaA,
-};
 use io::driver::AsyncSerialPortDriver;
-use std::path::Path;
+use std::error::Error;
+use std::fmt::Debug;
 use std::time::Duration;
-use std::{error::Error, io::BufWriter};
-use std::{fmt::Debug, u8};
-use teloxide::net::Download;
-use teloxide::types::{Me, PhotoSize, Sticker};
+use teloxide::types::{PhotoSize, Sticker};
 use teloxide::{prelude::*, utils::command::BotCommands};
-use tokio::fs::File;
-use util::downloader::download_and_prepare_printer;
+use util::downloader::{download_and_prepare_printer, ImageOptions};
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
 
 const AUTHORIZED_USER_ENV_VAR_KEY: &str = "AUTHORIZED_USER";
+const CONTRAST_ENV_VAR_KEY: &str = "CONTRAST";
+const BRIGHTNESS_ENV_VAR_KEY: &str = "BRIGHTNESS";
+const BASE_PATH_ENV_VAR_KEY: &str = "BASE_PATH";
+const MAX_WIDTH_ENV_VAR_KEY: &str = "MAX_WIDTH";
 
 /// These commands are supported:
 #[derive(BotCommands, Clone, Debug)]
@@ -125,7 +121,18 @@ impl PreparePrintCommand for PrintTypeSticker {
         bot: Bot,
     ) -> HandlerResult {
         let file_id = &self.0.file.id;
-        download_and_prepare_printer(file_id.to_string(), printer, bot).await
+        download_and_prepare_printer(
+            file_id.to_string(),
+            printer,
+            bot,
+            ImageOptions {
+                contrast: 0f32,
+                brightness: 0i32,
+                base_path: "./tmp".to_string(),
+                max_width: 64u32,
+            },
+        )
+        .await
     }
 }
 impl PreparePrintCommand for PrintTypeQr {
@@ -185,6 +192,7 @@ impl PreparePrintCommand for PrintTypeBarcode {
 #[derive(Clone)]
 struct PrintService {
     printer: Printer<AsyncSerialPortDriver>,
+    image_options: ImageOptions,
 }
 
 impl PrintService {
@@ -221,31 +229,49 @@ impl PrintService {
     }
 }
 
-impl From<Printer<AsyncSerialPortDriver>> for PrintService {
-    fn from(value: Printer<AsyncSerialPortDriver>) -> Self {
-        PrintService { printer: value }
-    }
-}
-
 #[tokio::main]
 async fn main() -> HandlerResult {
     dotenv::dotenv()?;
     pretty_env_logger::init();
     log::info!("Starting buttons bot...");
 
+    // Get env fields
     let authorized_user = UserId(
         dotenv::var(AUTHORIZED_USER_ENV_VAR_KEY)
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(0u64),
     );
+    let contrast = dotenv::var(CONTRAST_ENV_VAR_KEY)
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .unwrap_or(0f32);
+    let brightness = dotenv::var(BRIGHTNESS_ENV_VAR_KEY)
+        .ok()
+        .and_then(|v| v.parse::<i32>().ok())
+        .unwrap_or(0i32);
+    let base_path = dotenv::var(BASE_PATH_ENV_VAR_KEY)
+        .ok()
+        .unwrap_or("./tmp".to_string());
+    let max_width = dotenv::var(MAX_WIDTH_ENV_VAR_KEY)
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(64u32);
 
     log::info!("Authorized UserID: {}", authorized_user.to_string());
 
     let driver = AsyncSerialPortDriver::open("/dev/ttyUSB0", 9600, Some(Duration::from_secs(5)))?;
     let printer = Printer::new(driver, Protocol::default(), Some(PrinterOptions::default()));
 
-    let print_service = PrintService::from(printer);
+    let print_service = PrintService {
+        printer,
+        image_options: ImageOptions {
+            contrast,
+            brightness,
+            base_path,
+            max_width,
+        },
+    };
 
     let bot = Bot::from_env();
 
