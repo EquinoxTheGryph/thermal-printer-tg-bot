@@ -80,78 +80,81 @@ enum BarcodeType {
     Itf,
 }
 
-trait PreparePrintCommand {
-    async fn prepare(
-        &self,
-        printer: &mut Printer<AsyncSerialPortDriver>,
-        bot: Bot,
-    ) -> HandlerResult;
+trait Print {
+    async fn print(&self, print_service: PrintService, bot: Bot) -> HandlerResult;
 }
 
-impl PreparePrintCommand for PrintTypeText {
-    async fn prepare(
-        &self,
-        printer: &mut Printer<AsyncSerialPortDriver>,
-        bot: Bot,
-    ) -> HandlerResult {
+impl Print for PrintTypeText {
+    async fn print(&self, print_service: PrintService, bot: Bot) -> HandlerResult {
+        let mut cloned_printer = print_service.printer.clone();
+        let printer = cloned_printer.init()?;
+
         printer.writeln(&self.0)?;
 
+        log::info!("Printing...");
+        printer.print()?;
+        log::info!("Print complete!");
         Ok(())
     }
 }
-impl PreparePrintCommand for PrintTypeImage {
-    async fn prepare(
-        &self,
-        printer: &mut Printer<AsyncSerialPortDriver>,
-        bot: Bot,
-    ) -> HandlerResult {
-        todo!();
+impl Print for PrintTypeImage {
+    async fn print(&self, print_service: PrintService, bot: Bot) -> HandlerResult {
+        let mut cloned_printer = print_service.printer.clone();
+        let printer = cloned_printer.init()?;
 
-        if let Some(text) = &self.1 {
-            printer.writeln(text)?;
-        }
-
-        Ok(())
-    }
-}
-impl PreparePrintCommand for PrintTypeSticker {
-    async fn prepare(
-        &self,
-        printer: &mut Printer<AsyncSerialPortDriver>,
-        bot: Bot,
-    ) -> HandlerResult {
         let file_id = &self.0.file.id;
         download_and_prepare_printer(
             file_id.to_string(),
             printer,
             bot,
-            ImageOptions {
-                contrast: 0f32,
-                brightness: 0i32,
-                base_path: "./tmp".to_string(),
-                max_width: 64u32,
-            },
+            print_service.image_options,
         )
-        .await
-    }
-}
-impl PreparePrintCommand for PrintTypeQr {
-    async fn prepare(
-        &self,
-        printer: &mut Printer<AsyncSerialPortDriver>,
-        _bot: Bot,
-    ) -> HandlerResult {
-        printer.qrcode(&self.0)?;
+        .await?;
 
+        log::info!("Printing...");
+        printer.print()?;
+        log::info!("Print complete!");
         Ok(())
     }
 }
-impl PreparePrintCommand for PrintTypeBarcode {
-    async fn prepare(
-        &self,
-        printer: &mut Printer<AsyncSerialPortDriver>,
-        _bot: Bot,
-    ) -> HandlerResult {
+impl Print for PrintTypeSticker {
+    async fn print(&self, print_service: PrintService, bot: Bot) -> HandlerResult {
+        let mut cloned_printer = print_service.printer.clone();
+        let printer = cloned_printer.init()?;
+
+        let file_id = &self.0.file.id;
+        download_and_prepare_printer(
+            file_id.to_string(),
+            printer,
+            bot,
+            print_service.image_options,
+        )
+        .await?;
+
+        log::info!("Printing...");
+        printer.print()?;
+        log::info!("Print complete!");
+        Ok(())
+    }
+}
+impl Print for PrintTypeQr {
+    async fn print(&self, print_service: PrintService, _bot: Bot) -> HandlerResult {
+        let mut cloned_printer = print_service.printer.clone();
+        let printer = cloned_printer.init()?;
+
+        printer.qrcode(&self.0)?;
+
+        log::info!("Printing...");
+        printer.print()?;
+        log::info!("Print complete!");
+        Ok(())
+    }
+}
+impl Print for PrintTypeBarcode {
+    async fn print(&self, print_service: PrintService, _bot: Bot) -> HandlerResult {
+        let mut cloned_printer = print_service.printer.clone();
+        let printer = cloned_printer.init()?;
+
         let b_type = &self.0;
         let content = &self.2;
 
@@ -181,6 +184,9 @@ impl PreparePrintCommand for PrintTypeBarcode {
             }
         }
 
+        log::info!("Printing...");
+        printer.print()?;
+        log::info!("Print complete!");
         Ok(())
     }
 }
@@ -197,33 +203,30 @@ struct PrintService {
 
 impl PrintService {
     async fn print(&self, bot: Bot, print_type: PrintType) -> HandlerResult {
-        let mut cloned_printer = self.printer.clone();
-        let printer = cloned_printer.init()?;
+        // let mut printer = self.printer.clone();
+
+        // let printer = &mut cloned_printer;//.init()?
 
         log::info!("Preparing print queue");
 
         // TODO: Cleaner way to handle this?
         match print_type {
             PrintType::Text(print_type_text) => {
-                print_type_text.prepare(printer, bot).await?;
+                print_type_text.print(self.clone(), bot).await?;
             }
             PrintType::Image(print_type_image) => {
-                print_type_image.prepare(printer, bot).await?;
+                print_type_image.print(self.clone(), bot).await?;
             }
             PrintType::Sticker(print_type_sticker) => {
-                print_type_sticker.prepare(printer, bot).await?;
+                print_type_sticker.print(self.clone(), bot).await?;
             }
             PrintType::Qr(print_type_qr) => {
-                print_type_qr.prepare(printer, bot).await?;
+                print_type_qr.print(self.clone(), bot).await?;
             }
             PrintType::Barcode(print_type_barcode) => {
-                print_type_barcode.prepare(printer, bot).await?;
+                print_type_barcode.print(self.clone(), bot).await?;
             }
         };
-
-        log::info!("Printing...");
-        printer.print()?;
-        log::info!("Print complete!");
 
         Ok(())
     }
