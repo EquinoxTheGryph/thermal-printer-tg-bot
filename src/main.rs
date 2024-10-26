@@ -51,24 +51,11 @@ enum Command {
 }
 
 //#region Print Stuff
-struct PrintTypeText(String);
-struct PrintTypeImage(PhotoSize, Option<String>);
-struct PrintTypeSticker(Sticker);
-struct PrintTypeQr(String);
-struct PrintTypeBarcode(BarcodeType, Option<BarcodeOption>, String);
-
-enum PrintType {
-    /// Just Text
-    Text(PrintTypeText),
-    /// Image with optional text (to be printed below the image)
-    Image(PrintTypeImage),
-    /// Sticker
-    Sticker(PrintTypeSticker),
-    /// QR Code
-    Qr(PrintTypeQr),
-    /// Barcode
-    Barcode(PrintTypeBarcode),
-}
+struct TextPrinter(String);
+struct ImagePrinter(PhotoSize, Option<String>);
+struct StickerPrinter(Sticker);
+struct QrCodePrinter(String);
+struct BarcodePrinter(BarcodeType, String);
 
 enum BarcodeType {
     Ean13,
@@ -81,27 +68,45 @@ enum BarcodeType {
 }
 
 trait Print {
-    async fn print(&self, print_service: PrintService, bot: Bot) -> HandlerResult;
+    async fn print(&self, print_service: PrintService, bot: Bot) -> HandlerResult {
+        log::info!("Preparing Print...");
+        let mut cloned_printer = print_service.printer.clone();
+        let mut printer = cloned_printer.init()?;
+
+        self.prepare(&mut printer, print_service, bot).await?;
+
+        log::info!("Printing...");
+        printer.print()?;
+        log::info!("Print complete!");
+        Ok(())
+    }
+
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        print_service: PrintService,
+        bot: Bot,
+    ) -> HandlerResult;
 }
 
-impl Print for PrintTypeText {
-    async fn print(&self, print_service: PrintService, bot: Bot) -> HandlerResult {
-        let mut cloned_printer = print_service.printer.clone();
-        let printer = cloned_printer.init()?;
-
+impl Print for TextPrinter {
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        print_service: PrintService,
+        bot: Bot,
+    ) -> HandlerResult {
         printer.writeln(&self.0)?;
-
-        log::info!("Printing...");
-        printer.print()?;
-        log::info!("Print complete!");
         Ok(())
     }
 }
-impl Print for PrintTypeImage {
-    async fn print(&self, print_service: PrintService, bot: Bot) -> HandlerResult {
-        let mut cloned_printer = print_service.printer.clone();
-        let printer = cloned_printer.init()?;
-
+impl Print for ImagePrinter {
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        print_service: PrintService,
+        bot: Bot,
+    ) -> HandlerResult {
         let file_id = &self.0.file.id;
         download_and_prepare_printer(
             file_id.to_string(),
@@ -110,18 +115,21 @@ impl Print for PrintTypeImage {
             print_service.image_options,
         )
         .await?;
-
-        log::info!("Printing...");
-        printer.print()?;
-        log::info!("Print complete!");
+    
+        // Write text if defined
+        if let Some(text) = &self.1 {
+            printer.writeln(text)?;
+        }
         Ok(())
     }
 }
-impl Print for PrintTypeSticker {
-    async fn print(&self, print_service: PrintService, bot: Bot) -> HandlerResult {
-        let mut cloned_printer = print_service.printer.clone();
-        let printer = cloned_printer.init()?;
-
+impl Print for StickerPrinter {
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        print_service: PrintService,
+        bot: Bot,
+    ) -> HandlerResult {
         let file_id = &self.0.file.id;
         download_and_prepare_printer(
             file_id.to_string(),
@@ -130,37 +138,31 @@ impl Print for PrintTypeSticker {
             print_service.image_options,
         )
         .await?;
-
-        log::info!("Printing...");
-        printer.print()?;
-        log::info!("Print complete!");
         Ok(())
     }
 }
-impl Print for PrintTypeQr {
-    async fn print(&self, print_service: PrintService, _bot: Bot) -> HandlerResult {
-        let mut cloned_printer = print_service.printer.clone();
-        let printer = cloned_printer.init()?;
-
+impl Print for QrCodePrinter {
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        print_service: PrintService,
+        bot: Bot,
+    ) -> HandlerResult {
         printer.qrcode(&self.0)?;
-
-        log::info!("Printing...");
-        printer.print()?;
-        log::info!("Print complete!");
         Ok(())
     }
 }
-impl Print for PrintTypeBarcode {
-    async fn print(&self, print_service: PrintService, _bot: Bot) -> HandlerResult {
-        let mut cloned_printer = print_service.printer.clone();
-        let printer = cloned_printer.init()?;
+impl Print for BarcodePrinter {
+    async fn prepare(
+        &self,
+        printer: &mut Printer<AsyncSerialPortDriver>,
+        print_service: PrintService,
+        bot: Bot,
+    ) -> HandlerResult {
+        let barcode_type = &self.0;
+        let content = &self.1;
 
-        let b_type = &self.0;
-        let content = &self.2;
-
-        // TODO: Use BarcodeOption (need to deref somehow?)
-
-        match b_type {
+        match barcode_type {
             BarcodeType::Ean13 => {
                 printer.ean13(&content)?;
             }
@@ -182,54 +184,17 @@ impl Print for PrintTypeBarcode {
             BarcodeType::Itf => {
                 printer.itf(&content)?;
             }
-        }
+        };
 
-        log::info!("Printing...");
-        printer.print()?;
-        log::info!("Print complete!");
         Ok(())
     }
 }
 //#endregion
 
-//#region Other stuff
-//#endregion Other stuff
-
 #[derive(Clone)]
 struct PrintService {
     printer: Printer<AsyncSerialPortDriver>,
     image_options: ImageOptions,
-}
-
-impl PrintService {
-    async fn print(&self, bot: Bot, print_type: PrintType) -> HandlerResult {
-        // let mut printer = self.printer.clone();
-
-        // let printer = &mut cloned_printer;//.init()?
-
-        log::info!("Preparing print queue");
-
-        // TODO: Cleaner way to handle this?
-        match print_type {
-            PrintType::Text(print_type_text) => {
-                print_type_text.print(self.clone(), bot).await?;
-            }
-            PrintType::Image(print_type_image) => {
-                print_type_image.print(self.clone(), bot).await?;
-            }
-            PrintType::Sticker(print_type_sticker) => {
-                print_type_sticker.print(self.clone(), bot).await?;
-            }
-            PrintType::Qr(print_type_qr) => {
-                print_type_qr.print(self.clone(), bot).await?;
-            }
-            PrintType::Barcode(print_type_barcode) => {
-                print_type_barcode.print(self.clone(), bot).await?;
-            }
-        };
-
-        Ok(())
-    }
 }
 
 #[tokio::main]
@@ -312,64 +277,70 @@ async fn handle_command(
     cmd: Command,
     print_service: PrintService,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let print_type: Option<PrintType> = match cmd {
+    let cloned_bot = bot.clone();
+
+    let result: HandlerResult = match cmd {
         Command::Help | Command::Start => {
-            bot.send_message(msg.chat.id, Command::descriptions().to_string())
+            cloned_bot
+                .send_message(msg.chat.id, Command::descriptions().to_string())
                 .await?;
-            None
-        }
-        Command::Qr(content) => Some(PrintType::Qr(PrintTypeQr(content))),
-
-        Command::Ean13(content) => Some(PrintType::Barcode(PrintTypeBarcode(
-            BarcodeType::Ean13,
-            None,
-            content,
-        ))),
-        Command::Ean8(content) => Some(PrintType::Barcode(PrintTypeBarcode(
-            BarcodeType::Ean8,
-            None,
-            content,
-        ))),
-        Command::Upca(content) => Some(PrintType::Barcode(PrintTypeBarcode(
-            BarcodeType::Upca,
-            None,
-            content,
-        ))),
-        Command::Upce(content) => Some(PrintType::Barcode(PrintTypeBarcode(
-            BarcodeType::Upce,
-            None,
-            content,
-        ))),
-        Command::Code39(content) => Some(PrintType::Barcode(PrintTypeBarcode(
-            BarcodeType::Code39,
-            None,
-            content,
-        ))),
-        Command::Codabar(content) => Some(PrintType::Barcode(PrintTypeBarcode(
-            BarcodeType::Codabar,
-            None,
-            content,
-        ))),
-        Command::Itf(content) => Some(PrintType::Barcode(PrintTypeBarcode(
-            BarcodeType::Itf,
-            None,
-            content,
-        ))),
-    };
-
-    if let Some(print_type) = print_type {
-        let result = print_service.print(bot.clone(), print_type).await;
-
-        if let Err(error) = result {
-            // Send the error message before bubbling the error
-            bot.send_message(msg.chat.id, error.to_string()).await?;
-            Err(error)
-        } else {
             Ok(())
         }
-    } else {
-        Ok(())
+        Command::Qr(content) => {
+            QrCodePrinter(content)
+                .print(print_service, cloned_bot)
+                .await?;
+            Ok(())
+        }
+        Command::Ean13(content) => {
+            BarcodePrinter(BarcodeType::Ean13, content)
+                .print(print_service, cloned_bot)
+                .await?;
+            Ok(())
+        }
+        Command::Ean8(content) => {
+            BarcodePrinter(BarcodeType::Ean8, content)
+                .print(print_service, cloned_bot)
+                .await?;
+            Ok(())
+        }
+        Command::Upca(content) => {
+            BarcodePrinter(BarcodeType::Upca, content)
+                .print(print_service, cloned_bot)
+                .await?;
+            Ok(())
+        }
+        Command::Upce(content) => {
+            BarcodePrinter(BarcodeType::Upce, content)
+                .print(print_service, cloned_bot)
+                .await?;
+            Ok(())
+        }
+        Command::Code39(content) => {
+            BarcodePrinter(BarcodeType::Code39, content)
+                .print(print_service, cloned_bot)
+                .await?;
+            Ok(())
+        }
+        Command::Codabar(content) => {
+            BarcodePrinter(BarcodeType::Codabar, content)
+                .print(print_service, cloned_bot)
+                .await?;
+            Ok(())
+        }
+        Command::Itf(content) => {
+            BarcodePrinter(BarcodeType::Itf, content)
+                .print(print_service, cloned_bot)
+                .await?;
+            Ok(())
+        }
+    };
+
+    if let Err(error) = &result {
+        bot.send_message(msg.chat.id, error.to_string()).await?;
     }
+
+    result
 }
 
 async fn handle_unknown_command(
@@ -402,38 +373,48 @@ async fn handle_other(
     msg: Message,
     print_service: PrintService,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let cloned_bot = bot.clone();
+
     let has_image = msg.photo().is_some_and(|i| i.len() > 0);
     let has_text = msg.text().is_some();
     let has_static_sticker = msg.sticker().is_some_and(|s| s.is_static());
 
-    let print_type: Option<PrintType> = match (has_image, has_text, has_static_sticker) {
-        (true, _, _) => msg.photo().and_then(|i| i.first()).map(|i| {
-            PrintType::Image(PrintTypeImage(i.clone(), msg.text().map(|v| v.to_string())))
-        }),
-        (false, true, _) => msg
-            .text()
-            .map(|v| PrintType::Text(PrintTypeText(v.to_string()))),
-        (_, _, true) => msg
-            .sticker()
-            .map(|s| PrintType::Sticker(PrintTypeSticker(s.clone()))),
-        (_, _, _) => None,
-    };
-
-    match print_type {
-        Some(print_type) => {
-            let result = print_service.print(bot.clone(), print_type).await;
-
-            if let Err(error) = result {
-                // Send the error message before bubbling the error
-                bot.send_message(msg.chat.id, error.to_string()).await?;
-                Err(error)
-            } else {
-                Ok(())
-            }
-        }
-        None => {
-            bot.send_message(msg.chat.id, "Unsupported Format!").await?;
+    let result: HandlerResult = match (has_image, has_text, has_static_sticker) {
+        (true, _, _) => {
+            if let Some(i) = msg.photo().and_then(|i| i.first()) {
+                ImagePrinter(i.clone(), msg.text().map(|v| v.to_string()))
+                    .print(print_service, cloned_bot)
+                    .await?;
+            };
             Ok(())
         }
+        (false, true, _) => {
+            if let Some(v) = msg.text() {
+                TextPrinter(v.to_string())
+                    .print(print_service, cloned_bot)
+                    .await?;
+            };
+            Ok(())
+        }
+        (_, _, true) => {
+            if let Some(s) = msg.sticker() {
+                StickerPrinter(s.clone())
+                    .print(print_service, cloned_bot)
+                    .await?;
+            };
+            Ok(())
+        }
+        (_, _, _) => {
+            cloned_bot
+                .send_message(msg.chat.id, "Unsupported Type.".to_string())
+                .await?;
+            Ok(())
+        }
+    };
+
+    if let Err(ref error) = result {
+        bot.send_message(msg.chat.id, error.to_string()).await?;
     }
+
+    result
 }

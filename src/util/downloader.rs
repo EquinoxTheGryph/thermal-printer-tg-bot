@@ -8,14 +8,7 @@ use teloxide::net::Download;
 use teloxide::prelude::*;
 use tokio::fs::File;
 
-// // TODO: Make these configurable
-// const BASE_PATH: &str = "./tmp";
-
-// const MAX_WIDTH: u32 = 320; // Must be divisible by 8
 const MAX_HEIGHT: u32 = u32::MAX;
-
-// const BRIGHTEN_AMT: i32 = 0i32;
-// const CONTRAST_AMT: f32 = -10f32;
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
 
