@@ -2,7 +2,7 @@
 {
   perSystem = { config, self', pkgs, lib, ... }: {
     devShells.default = pkgs.mkShell {
-      name = "thermal-printer-shell";
+      name = "thermal-printer-tg-bot-shell";
       inputsFrom = [
         self'.devShells.rust
         config.treefmt.build.devShell

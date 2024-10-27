@@ -2069,7 +2069,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "thermal-printer"
+name = "thermal-printer-tg-bot"
 version = "0.1.0"
 dependencies = [
  "async-tempfile",

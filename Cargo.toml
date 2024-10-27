@@ -2,8 +2,8 @@
 authors = ["Equinox <replacemeemail@example.org>"]
 edition = "2021"
 # If you change the name here, you must also do it in flake.nix (and run `cargo generate-lockfile` afterwards)
-name = "thermal-printer"
-description = "A simple Rust project using Nix"
+name = "thermal-printer-tg-bot"
+description = "A Telegram bot that drives any ESC-POS compatible (thermal) printers, including EM5820"
 version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
