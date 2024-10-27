@@ -15,6 +15,7 @@ use util::downloader::{download_and_prepare_printer, ImageOptions};
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
 
 const AUTHORIZED_USER_ENV_VAR_KEY: &str = "AUTHORIZED_USER";
+const SERIAL_PORT_ENV_VAR_KEY: &str = "SERIAL_PORT";
 const CONTRAST_ENV_VAR_KEY: &str = "CONTRAST";
 const BRIGHTNESS_ENV_VAR_KEY: &str = "BRIGHTNESS";
 const MAX_WIDTH_ENV_VAR_KEY: &str = "MAX_WIDTH";
@@ -209,6 +210,9 @@ async fn main() -> HandlerResult {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(0u64),
     );
+    let serial_port = dotenvy::var(SERIAL_PORT_ENV_VAR_KEY)
+        .ok()
+        .unwrap_or("".to_string());
     let contrast = dotenvy::var(CONTRAST_ENV_VAR_KEY)
         .ok()
         .and_then(|v| v.parse::<f32>().ok())
@@ -222,10 +226,11 @@ async fn main() -> HandlerResult {
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(64u32);
 
-    log::info!("Authorized UserID: {}", authorized_user.to_string());
-
-    let driver = AsyncSerialPortDriver::open("/dev/ttyUSB0", 9600, Some(Duration::from_secs(5)))?;
+    let driver =
+        AsyncSerialPortDriver::open(serial_port.as_str(), 9600, Some(Duration::from_secs(5)))?;
     let printer = Printer::new(driver, Protocol::default(), Some(PrinterOptions::default()));
+
+    log::info!("Authorized UserID: {}", authorized_user.to_string());
 
     let print_service = PrintService {
         printer,
