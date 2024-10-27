@@ -1,17 +1,21 @@
 [package]
-name = "thermal-printer"
-version = "0.1.0"
+authors = ["Equinox <replacemeemail@example.org>"]
 edition = "2021"
+# If you change the name here, you must also do it in flake.nix (and run `cargo generate-lockfile` afterwards)
+name = "thermal-printer"
+description = "A simple Rust project using Nix"
+version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+clap = { version = "4.3.14", features = ["derive"] }
+openssl-sys = { version = "0.9.104", features = ["vendored"] }
 dotenv = "0.15.0"
 escpos = { version = "0.13.1", features = ["barcodes", "codes_2d", "graphics", "serial_port"] }
 teloxide = { version = "0.13", features = ["macros"] }
 log = "0.4"
-pretty_env_logger = "0.4"
+pretty_env_logger = "0.5.0"
 tokio = { version =  "1.8", features = ["rt-multi-thread", "macros"] }
-openssl = "0.10.68"
 serialport = "4.6.0"
 image = "0.25.4"
