@@ -17,7 +17,6 @@ type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
 const AUTHORIZED_USER_ENV_VAR_KEY: &str = "AUTHORIZED_USER";
 const CONTRAST_ENV_VAR_KEY: &str = "CONTRAST";
 const BRIGHTNESS_ENV_VAR_KEY: &str = "BRIGHTNESS";
-const BASE_PATH_ENV_VAR_KEY: &str = "BASE_PATH";
 const MAX_WIDTH_ENV_VAR_KEY: &str = "MAX_WIDTH";
 
 /// These commands are supported:
@@ -218,9 +217,6 @@ async fn main() -> HandlerResult {
         .ok()
         .and_then(|v| v.parse::<i32>().ok())
         .unwrap_or(0i32);
-    let base_path = dotenvy::var(BASE_PATH_ENV_VAR_KEY)
-        .ok()
-        .unwrap_or("./tmp".to_string());
     let max_width = dotenvy::var(MAX_WIDTH_ENV_VAR_KEY)
         .ok()
         .and_then(|v| v.parse::<u32>().ok())
@@ -236,7 +232,6 @@ async fn main() -> HandlerResult {
         image_options: ImageOptions {
             contrast,
             brightness,
-            base_path,
             max_width,
         },
     };
