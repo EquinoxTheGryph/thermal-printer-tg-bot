@@ -1,6 +1,6 @@
 use crate::io::driver::AsyncSerialPortDriver;
 use escpos::printer::Printer;
-use image::{imageops::BiLevel, GenericImageView, GrayImage, Luma};
+use image::{imageops::BiLevel, GrayImage, Luma};
 use std::error::Error;
 use std::path::Path;
 use std::u8;

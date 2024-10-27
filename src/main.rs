@@ -93,8 +93,8 @@ impl Print for TextPrinter {
     async fn prepare(
         &self,
         printer: &mut Printer<AsyncSerialPortDriver>,
-        print_service: PrintService,
-        bot: Bot,
+        _print_service: PrintService,
+        _bot: Bot,
     ) -> HandlerResult {
         printer.writeln(&self.0)?;
         Ok(())
@@ -115,7 +115,7 @@ impl Print for ImagePrinter {
             print_service.image_options,
         )
         .await?;
-    
+
         // Write text if defined
         if let Some(text) = &self.1 {
             printer.writeln(text)?;
@@ -145,8 +145,8 @@ impl Print for QrCodePrinter {
     async fn prepare(
         &self,
         printer: &mut Printer<AsyncSerialPortDriver>,
-        print_service: PrintService,
-        bot: Bot,
+        _print_service: PrintService,
+        _bot: Bot,
     ) -> HandlerResult {
         printer.qrcode(&self.0)?;
         Ok(())
@@ -156,8 +156,8 @@ impl Print for BarcodePrinter {
     async fn prepare(
         &self,
         printer: &mut Printer<AsyncSerialPortDriver>,
-        print_service: PrintService,
-        bot: Bot,
+        _print_service: PrintService,
+        _bot: Bot,
     ) -> HandlerResult {
         let barcode_type = &self.0;
         let content = &self.1;
@@ -199,29 +199,29 @@ struct PrintService {
 
 #[tokio::main]
 async fn main() -> HandlerResult {
-    dotenv::dotenv()?;
+    dotenvy::dotenv()?;
     pretty_env_logger::init();
     log::info!("Starting buttons bot...");
 
     // Get env fields
     let authorized_user = UserId(
-        dotenv::var(AUTHORIZED_USER_ENV_VAR_KEY)
+        dotenvy::var(AUTHORIZED_USER_ENV_VAR_KEY)
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(0u64),
     );
-    let contrast = dotenv::var(CONTRAST_ENV_VAR_KEY)
+    let contrast = dotenvy::var(CONTRAST_ENV_VAR_KEY)
         .ok()
         .and_then(|v| v.parse::<f32>().ok())
         .unwrap_or(0f32);
-    let brightness = dotenv::var(BRIGHTNESS_ENV_VAR_KEY)
+    let brightness = dotenvy::var(BRIGHTNESS_ENV_VAR_KEY)
         .ok()
         .and_then(|v| v.parse::<i32>().ok())
         .unwrap_or(0i32);
-    let base_path = dotenv::var(BASE_PATH_ENV_VAR_KEY)
+    let base_path = dotenvy::var(BASE_PATH_ENV_VAR_KEY)
         .ok()
         .unwrap_or("./tmp".to_string());
-    let max_width = dotenv::var(MAX_WIDTH_ENV_VAR_KEY)
+    let max_width = dotenvy::var(MAX_WIDTH_ENV_VAR_KEY)
         .ok()
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(64u32);

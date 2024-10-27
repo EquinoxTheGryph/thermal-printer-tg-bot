@@ -11,11 +11,11 @@ version = "0.1.0"
 [dependencies]
 clap = { version = "4.3.14", features = ["derive"] }
 openssl-sys = { version = "0.9.104", features = ["vendored"] }
-dotenv = "0.15.0"
-escpos = { version = "0.13.1", features = ["barcodes", "codes_2d", "graphics", "serial_port"] }
+dotenvy = "0.15.7"
+escpos = { version = "0.13.1", features = ["barcodes", "codes_2d", "graphics"] }
 teloxide = { version = "0.13", features = ["macros"] }
 log = "0.4"
 pretty_env_logger = "0.5.0"
-tokio = { version =  "1.8", features = ["rt-multi-thread", "macros"] }
-serialport = "4.6.0"
+tokio = { version = "1.8", features = ["rt-multi-thread", "macros"] }
 image = "0.25.4"
+serial2 = "0.2.27"

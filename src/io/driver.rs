@@ -1,20 +1,19 @@
 use escpos::driver::Driver;
 use escpos::errors::PrinterError;
 use escpos::errors::Result;
-use serialport::SerialPort;
+use serial2::SerialPort;
 use std::borrow::BorrowMut;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
 /// Default timeout in seconds for read/write operations
-const DEFAULT_TIMEOUT_SECONDS: u64 = 5;
+const DEFAULT_TIMEOUT_SECONDS: u64 = 10;
 
 #[derive(Clone)]
 pub struct AsyncSerialPortDriver {
     path: String,
-    // port: Rc<RefCell<Box<dyn SerialPort>>>,
-    port: Arc<Mutex<Box<dyn SerialPort>>>,
+    port: Arc<Mutex<Box<SerialPort>>>,
 }
 
 impl AsyncSerialPortDriver {
@@ -32,15 +31,16 @@ impl AsyncSerialPortDriver {
     /// let mut printer = Printer::new(driver, Protocol::default(), None);
     /// ```
     pub fn open(path: &str, baud_rate: u32, timeout: Option<Duration>) -> Result<Self> {
-        let mut port = serialport::new(path, baud_rate);
-        if let Some(timeout) = timeout {
-            port = port.timeout(timeout);
-        }
-        let port = port.open().map_err(|e| PrinterError::Io(e.to_string()))?;
+        let real_timeout = timeout.unwrap_or(Duration::from_secs(DEFAULT_TIMEOUT_SECONDS));
+        let mut port =
+            SerialPort::open(path, baud_rate).map_err(|e| PrinterError::Io(e.to_string()))?;
+
+        port.set_read_timeout(real_timeout)?;
+        port.set_write_timeout(real_timeout)?;
 
         Ok(Self {
             path: path.to_string(),
-            port: Arc::new(Mutex::new(port)),
+            port: Arc::new(Mutex::new(Box::new(port))),
         })
     }
 }
@@ -64,9 +64,7 @@ impl Driver for AsyncSerialPortDriver {
             .port
             .try_lock()
             .map_err(|err| PrinterError::Io(err.to_string()))?;
-        let mut port = binding;
-        port.set_timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECONDS))
-            .map_err(|e| PrinterError::Io(e.to_string()))?;
+        let port = binding;
         Ok(port.read(buf)?)
     }
 
