@@ -10,13 +10,22 @@ version = "0.1.0"
 
 [dependencies]
 clap = { version = "4.3.14", features = ["derive"] }
-openssl-sys = { version = "0.9.104", features = ["vendored"] }
 dotenvy = "0.15.7"
 escpos = { version = "0.13.1", features = ["barcodes", "codes_2d", "graphics"] }
-teloxide = { version = "0.13", features = ["macros"] }
 log = "0.4"
 pretty_env_logger = "0.5.0"
 tokio = { version = "1.8", features = ["rt-multi-thread", "macros"] }
 image = "0.25.4"
 serial2 = "0.2.27"
 async-tempfile = "0.6.0"
+
+# Uncomment this to use OpenSSL
+# openssl-sys = { version = "0.9.104", features = ["vendored"] } # Uncomment this to use OpenSSL
+# teloxide = { version = "0.13", features = ["macros"] }
+
+# Comment this to use OpenSSL
+teloxide = { version = "0.13", default-features = false, features = [
+    "macros",
+    "rustls",
+    "ctrlc_handler",
+] }
