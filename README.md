@@ -36,3 +36,12 @@ nix build
 ```
 
 We also provide a [`justfile`](https://just.systems/) for Makefile'esque commands to be run inside of the devShell.
+
+## Cross Compilation (Raspberry Pi Zero 1/1W)
+
+- Download the toolchain for the Pi Zero: [Archive Direct](https://master.dl.sourceforge.net/project/raspberry-pi-cross-compilers/Raspberry%20Pi%20GCC%20Cross-Compiler%20Toolchains/Buster/GCC%2014.2.0/Raspberry%20Pi%201%2C%20Zero/cross-gcc-14.2.0-pi_0-1.tar.gz?viasf=1) or [Archive Mirror (in case it takes ages to download)](https://drive.google.com/file/d/1EY8ZjtlQ2vxqN5SZpU2V3Hb6EanlFHmT/view) ([Source](https://sourceforge.net/projects/raspberry-pi-cross-compilers/))
+- Untar it into `./tools`
+- Run `just crosscompile` (or `docker build --output=output .` if `just` isn't installed)
+- Copy the content of `./output` to your pi
+- Make sure the `.env` on the target is also filled in
+- Run the program as usual
