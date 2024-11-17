@@ -36,8 +36,6 @@ pub async fn download_and_prepare_printer(
     bot: Bot,
     options: ImageOptions,
 ) -> HandlerResult {
-    let mut tmp_file = TempFile::new_with_name(&file_id.clone()).await?;
-
     let cloned_str = &file_id.clone();
     let _id = substr(
         cloned_str.as_str(),
@@ -46,53 +44,64 @@ pub async fn download_and_prepare_printer(
     )
     .unwrap_or("?");
 
-    // Get the external file data
-    log::info!("[{}] Getting Metadata", &_id);
-    let file = bot.get_file(file_id).await?;
+    let result = {
+        log::info!("[{}] Creating Temporary File", &_id);
+        let mut tmp_file = TempFile::new_with_name(&file_id.clone()).await?;
 
-    // Download the file
-    log::info!("[{}] Downloading file", &_id);
-    bot.download_file(&file.path, &mut tmp_file).await?;
+        // Get the external file data
+        log::info!("[{}] Getting Metadata", &_id);
+        let file = bot.get_file(file_id).await?;
 
-    // Load the downloaded file
-    log::info!("[{}] Reading downloaded file", &_id);
-    let mut image = image::ImageReader::open(tmp_file.file_path())?
-        .with_guessed_format()?
-        .decode()?;
+        // Download the file
+        log::info!("[{}] Downloading file", &_id);
+        bot.download_file(&file.path, &mut tmp_file).await?;
 
-    // Process the image data (resize)
-    log::info!("[{}] Resizing Image", &_id);
-    let filter = image::imageops::FilterType::Lanczos3;
-    // TODO: Make the max size configurable instead of hard coded
-    image = image.resize(options.max_width, MAX_HEIGHT, filter);
+        // Load the downloaded file
+        log::info!("[{}] Reading downloaded file", &_id);
+        let mut image = image::ImageReader::open(tmp_file.file_path())?
+            .with_guessed_format()?
+            .decode()?;
 
-    // Convert to lumaA8
-    log::info!("[{}] Converting Image", &_id);
-    let image2 = image.to_luma_alpha8();
-    let mut image3 = GrayImage::from_fn(image.width(), image.height(), |x, y| {
-        let [luma, alpha] = image2.get_pixel(x, y).0;
+        // Process the image data (resize)
+        log::info!("[{}] Resizing Image", &_id);
+        let filter = image::imageops::FilterType::Lanczos3;
+        // TODO: Make the max size configurable instead of hard coded
+        image = image.resize(options.max_width, MAX_HEIGHT, filter);
 
-        // Apply a calculation to make the alpha channel always white
-        let max = u8::MAX;
-        let output_l = max - { max - luma } * { alpha / max };
+        // Convert to lumaA8
+        log::info!("[{}] Converting Image", &_id);
+        let image2 = image.to_luma_alpha8();
+        let mut image3 = GrayImage::from_fn(image.width(), image.height(), |x, y| {
+            let [luma, alpha] = image2.get_pixel(x, y).0;
 
-        Luma::<u8>([output_l])
-    });
+            // Apply a calculation to make the alpha channel always white
+            let max = u8::MAX;
+            let output_l = max - { max - luma } * { alpha / max };
 
-    // Process the image data (apply dither)
-    log::info!("[{}] Applying Contrast, Brighten and Dither", &_id);
-    image::imageops::colorops::contrast_in_place(&mut image3, options.contrast);
-    image::imageops::colorops::brighten_in_place(&mut image3, options.brightness);
-    image::imageops::dither(&mut image3, &BiLevel);
+            Luma::<u8>([output_l])
+        });
 
-    log::info!("[{}] Buffering", &_id);
-    let mut buf = Vec::new();
-    let enc = image::codecs::png::PngEncoder::new(&mut buf);
-    image3.write_with_encoder(enc)?;
+        // Process the image data (apply dither)
+        log::info!("[{}] Applying Contrast, Brighten and Dither", &_id);
+        image::imageops::colorops::contrast_in_place(&mut image3, options.contrast);
+        image::imageops::colorops::brighten_in_place(&mut image3, options.brightness);
+        image::imageops::dither(&mut image3, &BiLevel);
 
-    // Print out the image
-    log::info!("[{}] Adding to print queue...", &_id);
-    printer.bit_image_from_bytes(&buf)?;
+        log::info!("[{}] Buffering", &_id);
+        let mut buf = Vec::new();
+        let enc = image::codecs::png::PngEncoder::new(&mut buf);
+        image3.write_with_encoder(enc)?;
 
-    Ok(())
+        // Print out the image
+        log::info!("[{}] Adding to print queue...", &_id);
+        printer.bit_image_from_bytes(&buf)?;
+
+        Ok(())
+    };
+
+    if let Err(error) = &result {
+        log::error!("[{}] Error: {}", &_id, error );
+    };
+
+    result
 }
